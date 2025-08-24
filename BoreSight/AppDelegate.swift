@@ -1,0 +1,545 @@
+//
+//  AppDelegate.swift
+//  BoreSight
+//
+//  Created by Alek Vasek on 8/5/25.
+//
+
+import Foundation
+import Cocoa
+import SwiftUI
+import ApplicationServices
+import KeyboardShortcuts
+
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    var boreSightWindow: NSWindow?
+    var settingsWindow: NSWindow?
+    var statusWindow: NSWindow?
+    
+    private var statusItem: NSStatusItem!
+    
+    var lastWindowState: Bool? = nil
+    
+    var mouseMonitor: Timer? = nil
+    
+    var boreSightLocked: Bool = false
+    
+    let model = CrosshairModel()
+    
+
+    
+    var boreSightEnabled: Bool = true
+    
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        
+
+        
+        KeyboardShortcuts.onKeyDown(for: .toggleBoreSight) { [self] in
+            self.toggleBoreSightWindow()
+        }
+        
+        KeyboardShortcuts.onKeyDown(for: .toggleLockedBoreSight) { [self] in
+            self.toggleLockedBoreSight()
+        }
+        
+        KeyboardShortcuts.onKeyDown(for: .toggleCrosshairs) { [self] in
+            self.toggleCrosshairs()
+        }
+        
+        KeyboardShortcuts.onKeyDown(for: .toggleMouseCoordinates) { [self] in
+            self.toggleMouseCoordinatesWindow()
+        }
+        
+        
+        KeyboardShortcuts.onKeyDown(for: .copyMouseCoordinates) { [self] in
+            self.copyMouseCoordinatesToClipboard()
+        }
+        
+        
+        
+        
+        
+        
+        
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "scope", accessibilityDescription: "1")
+        }
+        
+        setupMenus()
+        
+        createBoreSightWindow()
+        
+    }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        deinitMouseMonitor()
+        destroyBoreSightWindow()
+        
+    }
+    
+    func createBoreSightWindow() {
+        guard let screen = model.getTargetScreen() else { return }
+        
+        if boreSightWindow == nil {
+            self.model.currentScreenSize = screen.frame.size
+            boreSightWindow = NSWindow(
+                    contentRect: screen.frame,
+                    styleMask: [.borderless],
+                    backing: .buffered,
+                    defer: false
+                )
+            
+            boreSightWindow?.title = "BoreSight"
+            boreSightWindow?.ignoresMouseEvents = true
+            
+            
+            
+            let crosshairView = FullScreenCrosshairs(model: model)
+            boreSightWindow?.contentView = NSHostingView(rootView: crosshairView)
+            boreSightWindow?.collectionBehavior = [.canJoinAllSpaces]
+            boreSightWindow?.level = .screenSaver
+            boreSightWindow?.isOpaque = false
+            boreSightWindow?.backgroundColor = .clear
+            boreSightWindow?.hasShadow = false
+            boreSightWindow?.orderFrontRegardless()
+            
+            showBoreSightWindow()
+        }
+            
+       
+    }
+    
+    func createSettingsWindow() {
+        
+        settingsWindow = NSWindow(
+                        contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
+                        styleMask: [.miniaturizable, .closable, .titled],
+                        backing: .buffered,
+                        defer: false,
+                        screen: .main
+            )
+        
+        settingsWindow?.titleVisibility = .visible
+        settingsWindow?.titlebarAppearsTransparent = true
+        
+        let settingsView = SettingsView(model: model, appDelegate: self)
+        let settingsHostingView = NSHostingView(rootView: settingsView)
+        
+        settingsWindow?.delegate = self
+        settingsWindow?.level = .normal
+        
+        
+        settingsWindow?.contentView = settingsHostingView
+        settingsWindow?.collectionBehavior = [.managed]
+        settingsWindow?.orderFrontRegardless()
+        
+
+        
+    }
+    
+    func showStatusWindow(message: String, duration: TimeInterval = 1.5) {
+        guard let screen = NSScreen.main else { return }
+
+        if let existing = statusWindow {
+           existing.orderOut(nil)
+           statusWindow = nil
+       }
+
+        let width: CGFloat = 200
+        let height: CGFloat = 50
+        let rect = NSRect(
+            x: screen.frame.midX - width / 2,
+            y: 75,
+            width: width,
+            height: height
+        )
+
+        statusWindow = NSWindow(
+            contentRect: rect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+
+        statusWindow?.level = .floating
+        statusWindow?.isOpaque = false
+        statusWindow?.hasShadow = true
+        statusWindow?.ignoresMouseEvents = true
+        statusWindow?.alphaValue = 0
+        
+
+        // Label for the message
+        let label = NSTextField(labelWithString: message)
+        label.alignment = .center
+        label.font = NSFont.boldSystemFont(ofSize: 16)
+        label.textColor = .white
+        label.backgroundColor = .clear
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let contentView = NSView(frame: rect)
+        contentView.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        ])
+        
+        statusWindow?.backgroundColor = .clear
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.8).cgColor
+        contentView.layer?.cornerRadius = 10
+        contentView.layer?.masksToBounds = true
+        
+        statusWindow?.contentView = contentView
+        statusWindow?.makeKeyAndOrderFront(nil)
+
+        NSAnimationContext.runAnimationGroup { context in
+               context.duration = 0.25
+               statusWindow?.animator().alphaValue = 1
+           }
+
+       // Fade out after delay
+       DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+           guard let self = self, let window = self.statusWindow else { return }
+           NSAnimationContext.runAnimationGroup { context in
+               context.duration = 0.25
+               window.animator().alphaValue = 0
+           } completionHandler: {
+               window.orderOut(nil)
+               if self.statusWindow === window { self.statusWindow = nil }
+           }
+       }
+    }
+    
+    @objc func toggleSettingsWindow(_ sender: NSMenuItem?) {
+        
+        if settingsWindow == nil {
+            createSettingsWindow()
+        }
+        
+        if model.hideBoreSightWhenSettingsOpen && boreSightEnabled {
+            lastWindowState = true
+            hideBoreSightWindow()
+        } else if model.hideBoreSightWhenSettingsOpen && !boreSightEnabled {
+            lastWindowState = nil
+        }
+        
+        
+        settingsWindow?.center()
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        if sender?.title == "About BoreSight" {
+                model.activeSettingsTab = .about
+            }
+        
+        updateBoreSightMenuItem()
+    }
+    
+    func hideBoreSightWindow() {
+        boreSightEnabled = false
+        if !model.keepBoreSightLocked {
+            boreSightLocked = false
+        }
+        
+        boreSightWindow?.orderOut(nil)
+        deinitMouseMonitor()
+        updateBoreSightMenuItem()
+        updateLockMenuItem()
+    }
+    
+    func showBoreSightWindow() {
+        initalizeMouseMonitor()
+        boreSightEnabled = true
+        
+        if !model.keepBoreSightLocked {
+            boreSightLocked = false
+        }
+        
+        if boreSightWindow == nil {
+            createBoreSightWindow()
+        }
+        
+        boreSightWindow?.makeKeyAndOrderFront(nil)
+        updateBoreSightMenuItem()
+        updateLockMenuItem()
+    }
+    
+    func initalizeMouseMonitor() {
+        deinitMouseMonitor()
+        
+        var currentScreen: NSScreen? = nil
+        
+        mouseMonitor = Timer.scheduledTimer(withTimeInterval: 1/60, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            
+            
+            DispatchQueue.main.async {
+                if !self.boreSightLocked,
+                   let r = self.model.currentScreenAndLocalMousePoint() {
+       
+                        self.model.mouseLocation = r.localPoint
+                        
+                        switch self.model.displayMode {
+                            
+                        case .followCursor:
+                            if currentScreen != r.screen {
+                                currentScreen = r.screen
+                                self.model.currentScreenSize = r.screen.frame.size
+                                self.boreSightWindow?.setFrame(r.screen.frame, display: true)
+                            }
+                        case .fixedScreen:
+                            let fixedIndex = self.model.fixedScreenIndex
+                            guard fixedIndex < NSScreen.screens.count else { return }
+
+                            let screen = NSScreen.screens[fixedIndex]
+                            let mouseLocation = NSEvent.mouseLocation
+                            var adjustedFrame = screen.frame
+                            
+                            adjustedFrame.origin.y -= 0      // leave bottom unchanged
+                            if let bottomScreen = NSScreen.screens.min(by: { $0.frame.origin.y < $1.frame.origin.y }),
+                               screen == bottomScreen {
+                                adjustedFrame.size.height -= 2  // shrink top edge by 1
+                            }
+                            
+                            let isMouseOnScreen = adjustedFrame.insetBy(dx: -1, dy: -1).contains(mouseLocation)
+                            
+                            if isMouseOnScreen {
+                                if self.boreSightEnabled {
+                                    self.boreSightWindow?.orderFront(nil)
+                                    self.boreSightEnabled = true
+                                }
+                            }   else if self.boreSightEnabled {
+                                    self.boreSightWindow?.orderOut(nil)
+                            }
+                            
+                            self.updateBoreSightMenuItem()
+                        }
+                    
+                }
+            }
+        }
+    }
+    
+    func deinitMouseMonitor() {
+        mouseMonitor?.invalidate()
+        mouseMonitor = nil
+    }
+    
+    @MainActor func setupMenus() {
+        // 1
+        let menu = NSMenu()
+
+        // 2
+        let toggleBoreSightVisibility = NSMenuItem(title: boreSightEnabled ? "Hide BoreSight" : "Show BoreSight", action: #selector(toggleBoreSightWindow) , keyEquivalent: "")
+        menu.addItem(toggleBoreSightVisibility)
+        
+
+        let lockBoreSight = NSMenuItem(title: boreSightLocked ? "Unlock BoreSight" : "Lock BoreSight", action: #selector(toggleLockedBoreSight) , keyEquivalent: "")
+        menu.addItem(lockBoreSight)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        let toggleCrosshairVisibility = NSMenuItem(title: model.crossHairsShown ? "Hide Crosshairs" : "Show Crosshairs", action: #selector(toggleCrosshairs) , keyEquivalent: "")
+        menu.addItem(toggleCrosshairVisibility)
+        
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        let copyMouseCoordinates = NSMenuItem(title: "Copy Mouse Coordinates", action: #selector(copyMouseCoordinatesToClipboard) , keyEquivalent: "")
+        menu.addItem(copyMouseCoordinates)
+        
+        let toggleMouseCoordinatesVisibility = NSMenuItem(title: model.mouseCoordinatesText ? "Hide Mouse Coordinates" : "Show Mouse Coordinates", action: #selector(toggleMouseCoordinatesWindow) , keyEquivalent: "")
+        menu.addItem(toggleMouseCoordinatesVisibility)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let aboutBoreSight = NSMenuItem(title: "About BoreSight", action: #selector(toggleSettingsWindow) , keyEquivalent: "")
+        menu.addItem(aboutBoreSight)
+
+        let settingsButton = NSMenuItem(title: "Settings...", action: #selector(toggleSettingsWindow) , keyEquivalent: "")
+        menu.addItem(settingsButton)
+
+
+        menu.addItem(NSMenuItem.separator())
+
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
+        // 3
+        statusItem.menu = menu
+        updateMenuShortcutDisplay()
+    }
+    
+    @MainActor
+    func updateMenuShortcutDisplay() -> Void {
+        guard let menu = statusItem.menu else { return }
+        
+        if let boreSightShortcut = KeyboardShortcuts.getShortcut(for: .toggleBoreSight),
+           let equivalent = boreSightShortcut.nsMenuItemKeyEquivalent,
+           let menuItem = menu.items.first(where: { $0.action == #selector(toggleBoreSightWindow) }) {
+            menuItem.keyEquivalent = equivalent
+            menuItem.keyEquivalentModifierMask = boreSightShortcut.modifiers
+        }
+        
+        if let lockingShortcut = KeyboardShortcuts.getShortcut(for: .toggleLockedBoreSight),
+           let equivalent = lockingShortcut.nsMenuItemKeyEquivalent,
+           let menuItem = menu.items.first(where: { $0.action == #selector(toggleLockedBoreSight) }) {
+            menuItem.keyEquivalent = equivalent
+            menuItem.keyEquivalentModifierMask = lockingShortcut.modifiers
+        }
+        
+        if let crossHairsShortcut = KeyboardShortcuts.getShortcut(for: .toggleCrosshairs),
+           let equivalent = crossHairsShortcut.nsMenuItemKeyEquivalent,
+           let menuItem = menu.items.first(where: { $0.action == #selector(toggleCrosshairs) }) {
+            menuItem.keyEquivalent = equivalent
+            menuItem.keyEquivalentModifierMask = crossHairsShortcut.modifiers
+        }
+        
+        if let copyCoordinatesShortcut = KeyboardShortcuts.getShortcut(for: .toggleLockedBoreSight),
+           let equivalent = copyCoordinatesShortcut.nsMenuItemKeyEquivalent,
+           let menuItem = menu.items.first(where: { $0.action == #selector(copyMouseCoordinatesToClipboard) }) {
+            menuItem.keyEquivalent = equivalent
+            menuItem.keyEquivalentModifierMask = copyCoordinatesShortcut.modifiers
+        }
+        
+        if let mouseCoordinateShortcut = KeyboardShortcuts.getShortcut(for: .toggleMouseCoordinates),
+           let equivalent = mouseCoordinateShortcut.nsMenuItemKeyEquivalent,
+           let menuItem = menu.items.first(where: { $0.action == #selector(toggleMouseCoordinatesWindow) }) {
+            menuItem.keyEquivalent = equivalent
+            menuItem.keyEquivalentModifierMask = mouseCoordinateShortcut.modifiers
+        }
+        
+        
+    }
+    
+    @objc func toggleCrosshairs() {
+        model.crossHairsShown.toggle()
+        
+        updateCrosshairsMenuItem()
+        
+    }
+    
+    
+    @objc func toggleBoreSightWindow() {
+        
+        if boreSightEnabled {
+            // If currently enabled, always hide
+            hideBoreSightWindow()
+            
+            
+            
+            
+       } else {
+           // Only show if user explicitly wants it
+           showBoreSightWindow()
+       }
+        
+
+        
+    }
+    
+    @objc func toggleMouseCoordinatesWindow() {
+        if model.mouseCoordinatesText {
+            model.mouseCoordinatesText = false
+        } else {
+            model.mouseCoordinatesText = true
+        }
+        
+        
+        updateMouseCoordinateMenuItem()
+        
+    }
+    
+    func destroyBoreSightWindow() {
+        boreSightWindow?.close()
+        boreSightWindow = nil
+        
+        settingsWindow?.close()
+        settingsWindow = nil
+    }
+    
+    @objc func toggleLockedBoreSight() {
+        boreSightLocked.toggle()
+        updateLockMenuItem()
+        
+        if model.showingAlerts {
+            showStatusWindow(message: boreSightLocked ? "BoreSight Locked" : "BoreSight Unlocked")
+        }
+    }
+    
+    @objc func copyMouseCoordinatesToClipboard() {
+        let coordinateText =  String(format: "(x: %.2f, y: %.2f)", model.mouseLocation.x, model.mouseLocation.y)
+        copyToClipboard(coordinateText)
+        
+        if model.showingAlerts {
+            showStatusWindow(message: "Copied to Clipboard")
+        }
+    }
+    
+    func copyToClipboard(_ string: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
+    }
+    
+    
+    
+    func updateBoreSightMenuItem() {
+        if let menu = statusItem.menu,
+           let boreSightMenuItem = menu.items.first(where: { $0.action == #selector(toggleBoreSightWindow) }) {
+            boreSightMenuItem.title = boreSightEnabled ? "Hide BoreSight" : "Show BoreSight"
+        }
+    }
+    
+    func updateLockMenuItem() {
+        if let menu = statusItem.menu,
+           let lockMenuItem = menu.items.first(where: { $0.action == #selector(toggleLockedBoreSight) }) {
+            lockMenuItem.title = boreSightLocked ? "Unlock BoreSight" : "Lock BoreSight"
+        }
+    }
+    
+    func updateMouseCoordinateMenuItem() {
+        if let menu = statusItem.menu,
+           let mouseCoordinatesMenuItem = menu.items.first(where: { $0.action == #selector(toggleMouseCoordinatesWindow) }) {
+            mouseCoordinatesMenuItem.title = model.mouseCoordinatesText ? "Hide Mouse Coordinates" : "Show Mouse Coordinates"
+        }
+    }
+    
+    func updateCrosshairsMenuItem() {
+        if let menu = statusItem.menu,
+           let crossHairMenuItem = menu.items.first(where: { $0.action == #selector(toggleCrosshairs) }) {
+            crossHairMenuItem.title = model.crossHairsShown ? "Hide Crosshairs" : "Show Crosshairs"
+        }
+    }
+    
+    
+    func changingFixedScreen() {
+        let index = model.fixedScreenIndex
+        guard index < NSScreen.screens.count else { return }
+        let screen = NSScreen.screens[index]
+        
+        
+        model.currentScreenSize = screen.frame.size
+        boreSightWindow?.setFrame(screen.frame, display: true)
+        
+    }
+}
+
+extension AppDelegate: NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if sender == settingsWindow {
+            sender.orderOut(nil)
+            
+            if let lastState = lastWindowState{
+                if lastState && !boreSightEnabled {
+                    showBoreSightWindow()
+                    lastWindowState = nil
+                }
+            }
+            return false
+        }
+        return true
+    }
+}
