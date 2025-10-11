@@ -41,6 +41,8 @@ class CrosshairModel: ObservableObject {
     @Published var mouseLocation: CGPoint = .zero
     @Published var activeSettingsTab: SettingsTab = .appearance
     @Published var currentScreenSize: CGSize = .zero
+    
+    @Published var magnifiedImage: CGImage?
 
     
     @Published var showingAlerts: Bool = true {
@@ -89,7 +91,27 @@ class CrosshairModel: ObservableObject {
         }
     }
     
+    @Published var everythingShown: Bool = true {
+        didSet {
+            defaults.set(everythingShown, forKey: "everythingShown")
+        }
+    }
     
+    @Published var mouseOriginShown: Bool = true {
+        didSet {
+            defaults.set(mouseOriginShown, forKey: "mouseOriginShown")
+        }
+    }
+    
+    @Published var mouseOriginPosition: CGPoint = CGPoint(x: 100, y: 100) {
+        didSet {
+            defaults.setCGPoint(mouseOriginPosition, forKey: "mouseOriginPosition")
+
+        }
+    }
+    
+    
+
     
     @Published var hideBoreSightWhenSettingsOpen: Bool = true {
         didSet {
@@ -268,8 +290,17 @@ class CrosshairModel: ObservableObject {
                self.borderOn = defaults.bool(forKey: "borderOn")
         }
         
+        if defaults.object(forKey: "everythingShown") != nil {
+               self.everythingShown = defaults.bool(forKey: "everythingShown")
+        }
         
+        if defaults.object(forKey: "mouseOriginShown") != nil {
+               self.mouseOriginShown = defaults.bool(forKey: "mouseOriginShown")
+        }
         
+        if let position = defaults.cgPoint(forKey: "mouseOriginPosition") {
+            self.mouseOriginPosition = position
+        }
         
         if let raw = defaults.string(forKey: "displayMode"),
            let mode = CrosshairDisplayMode(rawValue: raw) {
@@ -382,6 +413,10 @@ class CrosshairModel: ObservableObject {
         self.mouseCoordinatesTextZoom = 0
         self.mouseCoordinatesTextPosition = .bottomRight
         
+        self.everythingShown = true
+        
+        self.mouseOriginShown = true
+        
     }
     
     func getTargetScreen() -> NSScreen? {
@@ -434,57 +469,58 @@ class CrosshairModel: ObservableObject {
                           height: 30 + mouseCoordinatesTextOffset+mouseCoordinatesTextZoom)
         }
     }
-}
-
-extension UserDefaults {
-    func setColor(_ color: Color, forKey key: String) {
-        if let hex = color.hex {
-            set(hex, forKey: key)
-        }
-    }
     
-    func color(forKey key: String) -> NSColor? {
-        guard let hex = string(forKey: key) else { return nil }
-        return NSColor(hex: hex)
-    }
-    
-}
-
-extension NSColor {
-    public convenience init?(hex: String) {
-        let r, g, b, a: CGFloat
-
-        if hex.hasPrefix("#") {
-            let start = hex.index(hex.startIndex, offsetBy: 1)
-            let hexColor = String(hex[start...])
-
-            if hexColor.count == 8 {
-                let scanner = Scanner(string: hexColor)
-                var hexNumber: UInt64 = 0
-
-                if scanner.scanHexInt64(&hexNumber) {
-                    r = CGFloat((hexNumber & 0xff000000) >> 24) / 255
-                    g = CGFloat((hexNumber & 0x00ff0000) >> 16) / 255
-                    b = CGFloat((hexNumber & 0x0000ff00) >> 8) / 255
-                    a = CGFloat(hexNumber & 0x000000ff) / 255
-
-                    self.init(red: r, green: g, blue: b, alpha: a)
-                    return
-                }
+    func calculateTheta() -> Angle {
+        
+        
+        if let xDist = calculateDistance().first,
+           let yDist = calculateDistance().last {
+            let rawTheta = atan(yDist/xDist)
+            
+            let quadrant = calculateQuadrant(calcPoint: mouseLocation, basePoint: CGPoint(x: mouseOriginPosition.x, y: currentScreenSize.height - mouseOriginPosition.y))
+            print("Quadrant: \(quadrant)")
+            print("Raw Angle: \(Angle(radians: rawTheta))")
+            
+            if quadrant == 1 {
+                return Angle(radians: rawTheta)
+            } else if quadrant == 2 {
+                return Angle(radians: (Double.pi)+rawTheta)
+            } else if quadrant == 3 {
+                return Angle(radians: (Double.pi)+rawTheta)
+            } else if quadrant == 4 {
+                return Angle(radians: (2*Double.pi)+rawTheta)
             }
-        }
 
-        return nil
+            return Angle(radians: rawTheta)
+            
+        }
+        
+        return Angle(radians: 0)
+    }
+
+    func calculateDistance() -> [CGFloat] {
+        let yDist = -(currentScreenSize.height - mouseOriginPosition.y - mouseLocation.y)
+        
+        let xDist = mouseLocation.x-mouseOriginPosition.x
+        
+        return [xDist, yDist]
+    }
+
+    func calculateQuadrant(calcPoint: CGPoint, basePoint: CGPoint) -> Int {
+        if (calcPoint.y > basePoint.y) && (calcPoint.x > basePoint.x) {
+            return 1
+        } else if (calcPoint.y > basePoint.y) && (calcPoint.x < basePoint.x) {
+            return 2
+        } else if (calcPoint.y < basePoint.y) && (calcPoint.x < basePoint.x) {
+            return 3
+        } else if (calcPoint.y < basePoint.y) && (calcPoint.x > basePoint.x) {
+            return 4
+        }
+        
+        return 1
     }
 }
 
-extension Color {
-    var hex: String? {
-            guard let nsColor = NSColor(self).usingColorSpace(.deviceRGB) else { return nil }
-            let r = Int(nsColor.redComponent * 255)
-            let g = Int(nsColor.greenComponent * 255)
-            let b = Int(nsColor.blueComponent * 255)
-            let a = Int(nsColor.alphaComponent * 255)
-            return "#" + String(format: "%02X%02X%02X%02X", r, g, b, a)
-        }
-}
+
+
+

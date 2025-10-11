@@ -14,7 +14,7 @@ extension KeyboardShortcuts.Name {
     static let toggleCrosshairs = Self("toggleCrosshairs")
     static let toggleMouseCoordinates = Self("toggleMouseCoordinates")
     static let copyMouseCoordinates = Self("copyMouseCoordinates")
-
+    static let toggleMouseOrigin = Self("toggleMouseOrigin")
     
     
     

@@ -10,12 +10,16 @@ import Cocoa
 import SwiftUI
 import ApplicationServices
 import KeyboardShortcuts
-
+import ScreenCaptureKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var boreSightWindow: NSWindow?
     var settingsWindow: NSWindow?
     var statusWindow: NSWindow?
+    
+    var lastBorderState: Bool = false
+    var lastGapState: Bool = false
+    var lastCrosshairState: Bool = false
     
     private var statusItem: NSStatusItem!
     
@@ -26,6 +30,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var boreSightLocked: Bool = false
     
     let model = CrosshairModel()
+    
+    let screenCapture = ScreenCaptureManager()
+
     
 
     
@@ -56,8 +63,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.copyMouseCoordinatesToClipboard()
         }
         
-        
-        
+        KeyboardShortcuts.onKeyDown(for: .copyMouseCoordinates) { [self] in
+            self.toggleMouseOrigin()
+        }
         
         
         
@@ -71,6 +79,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         createBoreSightWindow()
         
+
+        if model.mouseOriginShown {
+            startScreenCapture()
+        }
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -139,7 +151,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
     }
     
-    func showStatusWindow(message: String, duration: TimeInterval = 1.5) {
+    func showStatusWindow(message: String, duration: TimeInterval = 2) {
         guard let screen = NSScreen.main else { return }
 
         if let existing = statusWindow {
@@ -237,6 +249,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         updateBoreSightMenuItem()
     }
     
+    @objc func toggleMouseOrigin() {
+        if model.mouseOriginShown {
+            stopScreenCapture()
+        } else {
+            startScreenCapture()
+        }
+        model.mouseOriginShown.toggle()
+        updateMouseOriginMenuItem()
+    }
+    
+    func enableOverlayEditing(_ enabled: Bool) {
+        boreSightWindow?.ignoresMouseEvents = !enabled
+    }
+    
+    
     func hideBoreSightWindow() {
         boreSightEnabled = false
         if !model.keepBoreSightLocked {
@@ -264,6 +291,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         boreSightWindow?.makeKeyAndOrderFront(nil)
         updateBoreSightMenuItem()
         updateLockMenuItem()
+    }
+    
+    func startScreenCapture() {
+        Task { @MainActor in
+            guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return }
+            print("Available displays: \(content.displays.count)")
+            for try await frame in screenCapture.startCapture(for: content) {
+                self.model.magnifiedImage = frame
+            }
+        }
+    }
+    
+    func stopScreenCapture() {
+        Task {
+            await screenCapture.stopCapture()
+        }
     }
     
     func initalizeMouseMonitor() {
@@ -356,6 +399,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        let toggleMouseOrigin = NSMenuItem(title: model.mouseOriginShown ? "Hide Mouse Origin" : "Show Mouse Origin", action: #selector(toggleMouseOrigin) , keyEquivalent: "")
+        menu.addItem(toggleMouseOrigin)
+        
+        menu.addItem(NSMenuItem.separator())
+
         let aboutBoreSight = NSMenuItem(title: "About BoreSight", action: #selector(toggleSettingsWindow) , keyEquivalent: "")
         menu.addItem(aboutBoreSight)
 
@@ -411,11 +459,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menuItem.keyEquivalentModifierMask = mouseCoordinateShortcut.modifiers
         }
         
+        if let mouseOriginShortcut = KeyboardShortcuts.getShortcut(for: .toggleMouseOrigin),
+           let equivalent = mouseOriginShortcut.nsMenuItemKeyEquivalent,
+           let menuItem = menu.items.first(where: { $0.action == #selector(toggleMouseOrigin) }) {
+            menuItem.keyEquivalent = equivalent
+            menuItem.keyEquivalentModifierMask = mouseOriginShortcut.modifiers
+        }
+        
         
     }
     
+
+    
+    
     @objc func toggleCrosshairs() {
-        model.crossHairsShown.toggle()
+        let anyVisible = model.crossHairsShown || model.borderOn || model.gapShown
+        if anyVisible {
+            // Currently ON → going OFF
+            // Save current states
+            lastBorderState = model.borderOn
+            lastGapState = model.gapShown
+            lastCrosshairState = model.crossHairsShown
+
+            // Hide all together
+            model.crossHairsShown = false
+            model.borderOn = false
+            model.gapShown = false
+       } else {
+           
+           // Restore previous states
+           model.borderOn = lastBorderState
+           model.gapShown = lastGapState
+           model.crossHairsShown = lastCrosshairState
+       }
         
         updateCrosshairsMenuItem()
         
@@ -470,8 +546,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func copyMouseCoordinatesToClipboard() {
-        let coordinateText =  String(format: "(x: %.2f, y: %.2f)", model.mouseLocation.x, model.mouseLocation.y)
-        copyToClipboard(coordinateText)
+        
+        if model.mouseOriginShown {
+            
+            
+            if let distX = model.calculateDistance().first,
+               let distY = model.calculateDistance().last {
+                let coordinateText =  String(format: "(x: %.2f, y: %.2f, θ: %.2f)", distX, distY, model.calculateTheta().degrees)
+                copyToClipboard(coordinateText)
+            } else {
+                let coordinateText =  String(format: "(x: %.2f, y: %.2f)", model.mouseLocation.x, model.mouseLocation.y)
+                copyToClipboard(coordinateText)
+            }
+        
+            
+            
+        } else {
+            let coordinateText =  String(format: "(x: %.2f, y: %.2f)", model.mouseLocation.x, model.mouseLocation.y)
+            copyToClipboard(coordinateText)
+        }
+        
+        
         
         if model.showingAlerts {
             showStatusWindow(message: "Copied to Clipboard")
@@ -510,7 +605,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func updateCrosshairsMenuItem() {
         if let menu = statusItem.menu,
            let crossHairMenuItem = menu.items.first(where: { $0.action == #selector(toggleCrosshairs) }) {
-            crossHairMenuItem.title = model.crossHairsShown ? "Hide Crosshairs" : "Show Crosshairs"
+            let anyVisible = model.crossHairsShown || model.borderOn || model.gapShown
+            crossHairMenuItem.title = anyVisible ? "Hide Crosshairs" : "Show Crosshairs"
+        }
+    }
+    
+    func updateMouseOriginMenuItem() {
+        if let menu = statusItem.menu,
+           let mouseOriginMenuItem = menu.items.first(where: { $0.action == #selector(toggleMouseOrigin) }) {
+            mouseOriginMenuItem.title = model.mouseOriginShown ? "Hide Mouse Origin" : "Show Mouse Origin"
         }
     }
     
@@ -524,6 +627,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         model.currentScreenSize = screen.frame.size
         boreSightWindow?.setFrame(screen.frame, display: true)
         
+    }
+    
+    func captureScreen(width: Int, height: Int) async throws -> NSImage? {
+        let availableContent = try await SCShareableContent.excludingDesktopWindows(false,
+                                                                                    onScreenWindowsOnly: true)
+        
+        let availableDisplays = availableContent.displays
+        let windows = availableContent.windows
+        
+        
+        if let display = availableDisplays.first {
+        let filter = SCContentFilter(display: display, including: windows)
+        
+        let image = try? await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: SCStreamConfiguration.defaultConfiguration(width: width, height: height)
+            )
+            
+            if let cgImage = image {
+                return NSImage(cgImage: cgImage, size: .init(width: width, height: height))
+            }
+            
+            return nil
+            
+        } else {
+            return nil
+        }
+           
     }
 }
 
@@ -543,3 +674,4 @@ extension AppDelegate: NSWindowDelegate {
         return true
     }
 }
+

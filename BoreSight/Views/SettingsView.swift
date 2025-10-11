@@ -177,6 +177,7 @@ struct SettingsView: View {
                             crosshairGapSettings()
                             borderSettings()
                             mouseCoordinatesTextSettings()
+                            mouseOriginSettings()
 
                             HStack {
                                 Spacer()
@@ -331,6 +332,28 @@ struct SettingsView: View {
     }
     
     @ViewBuilder
+    func mouseOriginSettings() -> some View {
+        Form() {
+            Toggle(isOn: $model.mouseOriginShown) {
+                Text("Set Mouse Origin")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.opacity(0.75))
+            }
+            
+            Button() {
+                // Show a Help Menu Popover
+            } label: {
+                Text("What the heck is Mouse Origin?")
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: model.mouseOriginShown)
+        .scrollDisabled(true)
+        .fontDesign(.rounded)
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+        
+    @ViewBuilder
     func borderSettings() -> some View {
         Form() {
             
@@ -411,7 +434,7 @@ struct SettingsView: View {
                         ColorPicker("Color", selection: $model.gapBorderColor, supportsOpacity: false)
                             .listRowBackground(Color.clear)
                         
-                        Slider(value: $model.gapBorderThickness, in: 1...10, step: 2) {
+                        Slider(value: $model.gapBorderThickness, in: 2...10, step: 2) {
                             HStack {
                                 Text("Border:")
                                 Text("\(Int(model.gapBorderThickness)) px")
@@ -552,6 +575,12 @@ struct SettingsView: View {
                 }
             }
             
+            KeyboardShortcuts.Recorder("Toggle Mouse Origin:", name: .toggleMouseOrigin) { _ in
+                Task { @MainActor in
+                    appDelegate.updateMenuShortcutDisplay()
+                }
+            }
+            
             
         }
         .fontDesign(.rounded)
@@ -566,10 +595,12 @@ struct SettingsView: View {
             
             HStack {
                 Image("aboutMe_Icon")
+                    .interpolation(.medium) 
                     .resizable()
                     .scaledToFit()
                     .frame(width: 180, height: 180)
                     .shadow(radius: 5, x: -2, y: 2)
+                
                 
                 Spacer()
                 
