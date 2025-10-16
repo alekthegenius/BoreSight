@@ -15,7 +15,6 @@ struct FullScreenCrosshairs: View {
 
     
     @State var isDraggingOrigin = false
-    @State var mouseDown = false
     
     @State var lastBorderState: Bool = false
     @State var lastGapState: Bool = false
@@ -31,6 +30,10 @@ struct FullScreenCrosshairs: View {
     
     @State private var localMonitor: Any?
     @State private var globalMonitor: Any?
+    
+    var mouseDown: Bool {
+        return NSEvent.pressedMouseButtons != 0
+    }
     
     
     var isMouseOverOrigin: Bool {
@@ -320,27 +323,11 @@ struct FullScreenCrosshairs: View {
     
     func setupMonitoring() {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]) { event in
-            switch event.type {
-            case .leftMouseDown, .leftMouseDragged:
-                mouseDown = true
-            case .leftMouseUp:
-                mouseDown = false
-            default:
-                break
-            }
             handleCursorVisibility()
             return event
         }
 
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]) { event in
-            switch event.type {
-            case .leftMouseDown, .leftMouseDragged:
-                mouseDown = true
-            case .leftMouseUp:
-                mouseDown = false
-            default:
-                break
-            }
             handleCursorVisibility()
         }
     }
