@@ -11,14 +11,41 @@ struct FullScreenCrosshairs: View {
     @ObservedObject var model: CrosshairModel
     
     @State var mouseOriginHover: Bool = false
+    @State private var globalMouseMonitor: Any?
+
     
     @State var isDraggingOrigin = false
+    @State var mouseDown = false
     
     @State var lastBorderState: Bool = false
     @State var lastGapState: Bool = false
     @State var lastCrosshairState: Bool = false
     
     @State private var coordOverlaySize: CGSize = .zero
+    
+    
+    @State private var justEndedDrag = false
+    
+    @State private var cursorShown = true
+    
+    
+    @State private var localMonitor: Any?
+    @State private var globalMonitor: Any?
+    
+    
+    var isMouseOverOrigin: Bool {
+        // Make sure we compare in the same coordinate space. mouseLocation is in top-left origin
+        // while mouseOriginPosition is stored in the view's coordinate space. Flip mouseLocation's
+        // y so both are comparable.
+        let mouseYFlipped = model.currentScreenSize.height - model.mouseLocation.y
+        let dx = model.mouseLocation.x - model.mouseOriginPosition.x
+        let dy = mouseYFlipped - model.mouseOriginPosition.y
+        let distance = sqrt(dx*dx + dy*dy)
+        return distance <= 27.5 // half of the expanded overlay size
+    }
+
+    
+
     
     var body: some View {
         
@@ -220,171 +247,165 @@ struct FullScreenCrosshairs: View {
                    }())
             }
             
-            mouseOriginOverlay()
-                .position(x: round(model.mouseOriginPosition.x), y: round(model.mouseOriginPosition.y))
-                .onAppear {
-                    if !isPointOnScreen(model.mouseOriginPosition,
-                                        screenSize: model.currentScreenSize) {
-                        model.mouseOriginPosition = CGPoint(
-                            x: model.currentScreenSize.width / 2,
-                            y: model.currentScreenSize.height / 2
-                        )
+            if model.mouseOriginShown  {
+                ZStack {
+                    if mouseDown && (mouseOriginHover || isDraggingOrigin) {
+                        GeometryReader { proxy in
+                                Rectangle()
+                                .fill(.black.opacity(0.25))
+                                    .frame(width: proxy.size.width, height: proxy.size.height)
+                                    
+                        }
                     }
+                    
+                    
+                    
+                    mouseOriginOverlay()
+                        .position(x: round(model.mouseOriginPosition.x), y: round(model.mouseOriginPosition.y))
+                        .onAppear {
+                            if !isPointOnScreen(model.mouseOriginPosition,
+                                                screenSize: model.currentScreenSize) {
+                                model.mouseOriginPosition = CGPoint(
+                                    x: model.currentScreenSize.width / 2,
+                                    y: model.currentScreenSize.height / 2
+                                )
+                            }
+                        }
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    // Begin dragging and update the origin relative to the drag location (avoid snapping to the live mouseLocation)
+                                    isDraggingOrigin = true
+
+                                    // Update origin using the gesture's location in the overlay's coordinate space.
+                                    // Use value.location which is in the view's coordinate space so we avoid flipping mistakes.
+                                    let newOrigin = CGPoint(x: value.location.x, y: value.location.y)
+                                    model.mouseOriginPosition = newOrigin
+
+                                    // Ensure cursor state updates immediately when drag begins/continues
+                                    handleCursorVisibility()
+                                }
+                                .onEnded { _ in
+                                    isDraggingOrigin = false
+                                    handleCursorVisibility()
+                                }
+                        )
                 }
+                .animation(.easeInOut(duration: 0.25), value: mouseDown && (mouseOriginHover || isDraggingOrigin))
+                    
+            }
             
-            magnifierView()
-                .allowsHitTesting(false)
+            
             
         }
         .frame(width: model.currentScreenSize.width, height: model.currentScreenSize.height)
         .ignoresSafeArea()
         .compositingGroup()
-        
+        .onAppear() {
+            setupMonitoring()
+        }
+        .onDisappear() {
+            if let lm = localMonitor {
+                NSEvent.removeMonitor(lm)
+            }
+            
+            if let gm = globalMonitor {
+                NSEvent.removeMonitor(gm)
+            }
+        }
+        .animation(nil, value: model.mouseOriginPosition)
+
         
     }
     
-    @ViewBuilder
-    func mouseOriginOverlay() -> some View {
-        if model.mouseOriginShown {
-            Circle()
-                .fill(mouseOriginHover ? .blue : .gray)
-                .stroke(.white, lineWidth: mouseOriginHover ? 10 : 5)
-                .frame(width: mouseOriginHover ? 30 : 25, height: mouseOriginHover ? 30 : 25)
-                .onHover() { hovering in
-                    let mouseIsDown = NSEvent.pressedMouseButtons != 0
-                    
-                    if !isDraggingOrigin {
-                        // Only update hover if we're NOT dragging
-                        mouseOriginHover = hovering
-                    }
-                    
-                    
-                    if let appDelegate = NSApp.delegate as? AppDelegate {
-    
-                        if hovering && !mouseIsDown {
-                            
-                            lastCrosshairState = model.crossHairsShown
-                            lastBorderState = model.borderOn
-                            lastGapState = model.gapShown
-                            // Hide temporarily
-                            model.crossHairsShown = false
-                            model.borderOn = false
-                            model.gapShown = false
-                            
-                        } else {
-                            if !hovering && !mouseIsDown {
-                                model.crossHairsShown = lastCrosshairState
-                                model.borderOn = lastBorderState
-                                model.gapShown = lastGapState
-                            }
-                            
-                        
-                        }
-                        appDelegate.enableOverlayEditing(hovering)
-                        
-                    }
-                    
-                }
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            isDraggingOrigin = true
-                            // update origin position
-                            model.mouseOriginPosition = CGPoint(
-                                x: model.mouseLocation.x,
-                                y: model.currentScreenSize.height - model.mouseLocation.y
-                            )
-                        }
-                        .onEnded { _ in
-                            isDraggingOrigin = false
-                        }
-                )
-                
-                
+    func setupMonitoring() {
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]) { event in
+            switch event.type {
+            case .leftMouseDown, .leftMouseDragged:
+                mouseDown = true
+            case .leftMouseUp:
+                mouseDown = false
+            default:
+                break
+            }
+            handleCursorVisibility()
+            return event
+        }
+
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]) { event in
+            switch event.type {
+            case .leftMouseDown, .leftMouseDragged:
+                mouseDown = true
+            case .leftMouseUp:
+                mouseDown = false
+            default:
+                break
+            }
+            handleCursorVisibility()
         }
     }
     
-    @ViewBuilder
-    func magnifierView() -> some View {
-        let magnifierSize = CGSize(width: 120, height: 60)
-        
-
-        if isDraggingOrigin && mouseOriginHover {
-            if let frame = model.magnifiedImage {
-                let cropRect = CGRect(
-                    x: model.mouseLocation.x - magnifierSize.width/2,
-                    y: CGFloat(frame.height) - model.mouseLocation.y - magnifierSize.height/2,
-                    width: magnifierSize.width,
-                    height: magnifierSize.height
-                )
-
-                if let cropped = frame.cropping(to: cropRect) {
-                    let offsetMouse = CGPoint(
-                        x: model.mouseLocation.x,
-                        y: model.mouseLocation.y + 75 // move magnifier 100 pts up
-                    )
-
-                    
-                    let position = clampedMagnifierPosition(
-                        mouse: offsetMouse,
-                        screenSize: model.currentScreenSize,
-                        magnifierSize: magnifierSize
-                    )
-
-                    ZStack {
-                        Image(decorative: cropped, scale: 1.0, orientation: .up)
-                            .resizable()
-                            .interpolation(.none)
-                            .scaleEffect(3.0)
-                            .clipShape(RoundedRectangle(cornerRadius: 25))
-                            .frame(width: magnifierSize.width, height: magnifierSize.height)
-                            .shadow(radius: 5)
-                            
-                            .position(x: position.x, y: model.currentScreenSize.height - position.y)
-                        
-                        Rectangle()
-                            .fill(.red)
-                            .frame(width: 120, height: 1)
-                            .position(x: position.x, y: model.currentScreenSize.height - position.y)
-                        
-                        Rectangle()
-                            .fill(.red)
-                            .frame(width: 1, height: 60)
-                            .position(x: position.x, y: model.currentScreenSize.height - position.y)
-                    }
-                        
-                        
-                }
-            } else {
-
-                RoundedRectangle(cornerRadius: 25)
-                   .fill(Color.black.opacity(0.2))
-                   .frame(width: 120, height: 120)
+    private func handleCursorVisibility() {
+        if mouseDown && isMouseOverOrigin {
+            if cursorShown {
+                NSCursor.hide()
+                cursorShown = false
+            }
+        } else {
+            if !cursorShown && !mouseDown {
+                NSCursor.unhide()
+                cursorShown = true
             }
         }
     }
     
-    
-    func clampedMagnifierPosition(mouse: CGPoint, screenSize: CGSize, magnifierSize: CGSize) -> CGPoint {
-        var x = mouse.x
-        var y = mouse.y
-
-        // Horizontal clamp
-        if x - magnifierSize.width/2 < 0 {
-            x = magnifierSize.width/2
-        } else if x + magnifierSize.width/2 > screenSize.width {
-            x = screenSize.width - magnifierSize.width/2
+    @ViewBuilder
+    func mouseOriginOverlay() -> some View {
+        Circle()
+            .fill(.white)
+            .blendMode(.destinationOut)
+            .frame(width: (mouseOriginHover || isDraggingOrigin)  ? (model.gapSize >= 55 ? model.gapSize : 55) : 30, height: (mouseOriginHover || isDraggingOrigin) ? (model.gapSize >= 55 ? model.gapSize : 55) : 30)
+            .animation(isDraggingOrigin ? nil : .spring(response: 0.25, dampingFraction: 0.7), value: mouseDown || mouseOriginHover)
+        
+        Circle()
+            .fill(mouseDown && (mouseOriginHover || isDraggingOrigin) ? .white.opacity(0.1) : (mouseOriginHover ? .blue.opacity(0.6) : .gray.opacity(0.6)))
+            .stroke(mouseDown && (mouseOriginHover || isDraggingOrigin) ? .clear : .white, lineWidth: mouseDown && (mouseOriginHover || isDraggingOrigin) ? 0 : 4)
+            .frame(width: (mouseOriginHover || isDraggingOrigin)  ? (model.gapSize >= 55 ? model.gapSize : 55) : 30, height: (mouseOriginHover || isDraggingOrigin) ? (model.gapSize >= 55 ? model.gapSize : 55) : 30)
+            .animation(isDraggingOrigin ? nil : .spring(response: 0.25, dampingFraction: 0.7), value: mouseDown || mouseOriginHover)
+            .onHover() { hovering in
+                
+                
+                mouseOriginHover = hovering
+                
+                if let appDelegate = NSApp.delegate as? AppDelegate {
+                    appDelegate.enableOverlayEditing(hovering)
+                }
+                
+                
+                
+            }
+        
+        if mouseDown && (mouseOriginHover || isDraggingOrigin) {
+            ZStack {
+                Rectangle()
+                    .fill(model.crossHairColor)
+                    .frame(width: (model.gapSize >= 55 ? model.gapSize : 55), height: 1)
+                    
+                Rectangle()
+                    .fill(model.crossHairColor)
+                    .frame(width: 1, height: (model.gapSize >= 55 ? model.gapSize : 55))
+                    
+            }
+            
+            
         }
-
-        // Vertical clamp
-        if y - magnifierSize.height/2 < 0 {
-            y = magnifierSize.height/2
-        } else if y + magnifierSize.height/2 > screenSize.height {
-            y = screenSize.height - magnifierSize.height/2
-        }
-
-        return CGPoint(x: x, y: y)
+                
+                
     }
+    
+    
+    
+    
     
     
     func clampedCoordinateTextPosition(mouse: CGPoint, screenSize: CGSize, overlaySize: CGSize) -> CGPoint {
@@ -414,7 +435,6 @@ struct FullScreenCrosshairs: View {
                point.y >= 0 &&
                point.y <= screenSize.height
     }
-    
     
 }
 

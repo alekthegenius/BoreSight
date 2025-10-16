@@ -100,6 +100,14 @@ class CrosshairModel: ObservableObject {
     @Published var mouseOriginShown: Bool = true {
         didSet {
             defaults.set(mouseOriginShown, forKey: "mouseOriginShown")
+            DispatchQueue.main.async {
+
+                
+                if let appDelegate = NSApp.delegate as? AppDelegate {
+                    appDelegate.updateMouseOriginMenuItem()
+                }
+            }
+            
         }
     }
     

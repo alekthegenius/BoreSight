@@ -11,6 +11,7 @@ import SwiftUI
 import ApplicationServices
 import KeyboardShortcuts
 import ScreenCaptureKit
+import CoreVideo
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var boreSightWindow: NSWindow?
@@ -25,18 +26,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     var lastWindowState: Bool? = nil
     
-    var mouseMonitor: Timer? = nil
+    var mouseMonitor: CADisplayLink? = nil
     
     var boreSightLocked: Bool = false
     
     let model = CrosshairModel()
     
-    let screenCapture = ScreenCaptureManager()
-
+    var suspendMouseUpdates = false
     
-
+    var activeCaptureDisplay: SCDisplay?
     
     var boreSightEnabled: Bool = true
+    
+    var currentScreen: NSScreen?
+    
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         
@@ -63,7 +66,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.copyMouseCoordinatesToClipboard()
         }
         
-        KeyboardShortcuts.onKeyDown(for: .copyMouseCoordinates) { [self] in
+        KeyboardShortcuts.onKeyDown(for: .toggleMouseOrigin) { [self] in
             self.toggleMouseOrigin()
         }
         
@@ -80,9 +83,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         createBoreSightWindow()
         
 
-        if model.mouseOriginShown {
-            startScreenCapture()
-        }
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -108,6 +108,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             
             
+            
             let crosshairView = FullScreenCrosshairs(model: model)
             boreSightWindow?.contentView = NSHostingView(rootView: crosshairView)
             boreSightWindow?.collectionBehavior = [.canJoinAllSpaces]
@@ -116,6 +117,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             boreSightWindow?.backgroundColor = .clear
             boreSightWindow?.hasShadow = false
             boreSightWindow?.orderFrontRegardless()
+
             
             showBoreSightWindow()
         }
@@ -133,6 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         screen: .main
             )
         
+        settingsWindow?.isReleasedWhenClosed = false
         settingsWindow?.titleVisibility = .visible
         settingsWindow?.titlebarAppearsTransparent = true
         
@@ -224,11 +227,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
        }
     }
     
-    @objc func toggleSettingsWindow(_ sender: NSMenuItem?) {
+    @objc func showSettingsWindow(_ sender: NSMenuItem?) {
         
-        if settingsWindow == nil {
-            createSettingsWindow()
-        }
+        
         
         if model.hideBoreSightWhenSettingsOpen && boreSightEnabled {
             lastWindowState = true
@@ -237,6 +238,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             lastWindowState = nil
         }
         
+
+        
+        createSettingsWindow()
         
         settingsWindow?.center()
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -250,11 +254,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func toggleMouseOrigin() {
-        if model.mouseOriginShown {
-            stopScreenCapture()
-        } else {
-            startScreenCapture()
-        }
         model.mouseOriginShown.toggle()
         updateMouseOriginMenuItem()
     }
@@ -270,14 +269,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             boreSightLocked = false
         }
         
+        suspendMouseUpdates = true
         boreSightWindow?.orderOut(nil)
-        deinitMouseMonitor()
         updateBoreSightMenuItem()
         updateLockMenuItem()
     }
     
     func showBoreSightWindow() {
-        initalizeMouseMonitor()
+        if mouseMonitor == nil {
+            initalizeMouseMonitor()
+        }
+        
+        suspendMouseUpdates = false
+        
         boreSightEnabled = true
         
         if !model.keepBoreSightLocked {
@@ -288,84 +292,83 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             createBoreSightWindow()
         }
         
+
         boreSightWindow?.makeKeyAndOrderFront(nil)
         updateBoreSightMenuItem()
         updateLockMenuItem()
     }
     
-    func startScreenCapture() {
-        Task { @MainActor in
-            guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return }
-            print("Available displays: \(content.displays.count)")
-            for try await frame in screenCapture.startCapture(for: content) {
-                self.model.magnifiedImage = frame
-            }
-        }
-    }
     
-    func stopScreenCapture() {
-        Task {
-            await screenCapture.stopCapture()
-        }
-    }
+    
     
     func initalizeMouseMonitor() {
-        deinitMouseMonitor()
+    
         
-        var currentScreen: NSScreen? = nil
-        
-        mouseMonitor = Timer.scheduledTimer(withTimeInterval: 1/60, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            
-            
-            
-            DispatchQueue.main.async {
-                if !self.boreSightLocked,
-                   let r = self.model.currentScreenAndLocalMousePoint() {
-       
-                        self.model.mouseLocation = r.localPoint
-                        
-                        switch self.model.displayMode {
-                            
-                        case .followCursor:
-                            if currentScreen != r.screen {
-                                currentScreen = r.screen
-                                self.model.currentScreenSize = r.screen.frame.size
-                                self.boreSightWindow?.setFrame(r.screen.frame, display: true)
-                            }
-                        case .fixedScreen:
-                            let fixedIndex = self.model.fixedScreenIndex
-                            guard fixedIndex < NSScreen.screens.count else { return }
-
-                            let screen = NSScreen.screens[fixedIndex]
-                            let mouseLocation = NSEvent.mouseLocation
-                            var adjustedFrame = screen.frame
-                            
-                            adjustedFrame.origin.y -= 0      // leave bottom unchanged
-                            if let bottomScreen = NSScreen.screens.min(by: { $0.frame.origin.y < $1.frame.origin.y }),
-                               screen == bottomScreen {
-                                adjustedFrame.size.height -= 2  // shrink top edge by 1
-                            }
-                            
-                            let isMouseOnScreen = adjustedFrame.insetBy(dx: -1, dy: -1).contains(mouseLocation)
-                            
-                            if isMouseOnScreen {
-                                if self.boreSightEnabled {
-                                    self.boreSightWindow?.orderFront(nil)
-                                    self.boreSightEnabled = true
-                                }
-                            }   else if self.boreSightEnabled {
-                                    self.boreSightWindow?.orderOut(nil)
-                            }
-                            
-                            self.updateBoreSightMenuItem()
-                        }
-                    
-                }
-            }
+        guard let window = boreSightWindow else {
+            return
         }
+        
+        currentScreen = model.getTargetScreen()
+        
+        mouseMonitor = window.displayLink(target: self, selector: #selector(updateMouseLocation))
+        
+        
+        
+        
+        
+        mouseMonitor?.add(to: .current, forMode: .common)
+        
     }
     
+    @objc func updateMouseLocation() {
+        
+        
+        guard !suspendMouseUpdates else { return }
+        
+        if !boreSightLocked,
+           let r = model.currentScreenAndLocalMousePoint() {
+            model.mouseLocation = r.localPoint
+        
+            switch model.displayMode {
+            case .followCursor:
+                if currentScreen != r.screen {
+                    currentScreen = r.screen
+                    model.currentScreenSize = r.screen.frame.size
+                    model.mouseOriginPosition = .init(x: r.screen.frame.width / 2, y: r.screen.frame.height / 2)
+                    boreSightWindow?.setFrame(r.screen.frame, display: true)
+                }
+                
+            case .fixedScreen:
+                let fixedIndex = model.fixedScreenIndex
+                guard fixedIndex < NSScreen.screens.count else { return }
+
+                let screen = NSScreen.screens[fixedIndex]
+                let mouseLocation = NSEvent.mouseLocation
+                var adjustedFrame = screen.frame
+                
+                adjustedFrame.origin.y -= 0      // leave bottom unchanged
+                if let bottomScreen = NSScreen.screens.min(by: { $0.frame.origin.y < $1.frame.origin.y }),
+                   screen == bottomScreen {
+                    adjustedFrame.size.height -= 2  // shrink top edge by 1
+                }
+                
+                let isMouseOnScreen = adjustedFrame.insetBy(dx: -1, dy: -1).contains(mouseLocation)
+                
+                if isMouseOnScreen {
+                    if boreSightEnabled {
+                        boreSightWindow?.orderFront(nil)
+                        boreSightEnabled = true
+                    }
+                }   else if boreSightEnabled {
+                        boreSightWindow?.orderOut(nil)
+                }
+                
+                updateBoreSightMenuItem()
+            }
+            
+        }
+    }
+        
     func deinitMouseMonitor() {
         mouseMonitor?.invalidate()
         mouseMonitor = nil
@@ -404,10 +407,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem.separator())
 
-        let aboutBoreSight = NSMenuItem(title: "About BoreSight", action: #selector(toggleSettingsWindow) , keyEquivalent: "")
+        let aboutBoreSight = NSMenuItem(title: "About BoreSight", action: #selector(showSettingsWindow) , keyEquivalent: "")
         menu.addItem(aboutBoreSight)
 
-        let settingsButton = NSMenuItem(title: "Settings...", action: #selector(toggleSettingsWindow) , keyEquivalent: "")
+        let settingsButton = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow) , keyEquivalent: "")
         menu.addItem(settingsButton)
 
 
@@ -445,7 +448,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menuItem.keyEquivalentModifierMask = crossHairsShortcut.modifiers
         }
         
-        if let copyCoordinatesShortcut = KeyboardShortcuts.getShortcut(for: .toggleLockedBoreSight),
+        if let copyCoordinatesShortcut = KeyboardShortcuts.getShortcut(for: .copyMouseCoordinates),
            let equivalent = copyCoordinatesShortcut.nsMenuItemKeyEquivalent,
            let menuItem = menu.items.first(where: { $0.action == #selector(copyMouseCoordinatesToClipboard) }) {
             menuItem.keyEquivalent = equivalent
@@ -629,49 +632,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
     }
     
-    func captureScreen(width: Int, height: Int) async throws -> NSImage? {
-        let availableContent = try await SCShareableContent.excludingDesktopWindows(false,
-                                                                                    onScreenWindowsOnly: true)
-        
-        let availableDisplays = availableContent.displays
-        let windows = availableContent.windows
-        
-        
-        if let display = availableDisplays.first {
-        let filter = SCContentFilter(display: display, including: windows)
-        
-        let image = try? await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: SCStreamConfiguration.defaultConfiguration(width: width, height: height)
-            )
-            
-            if let cgImage = image {
-                return NSImage(cgImage: cgImage, size: .init(width: width, height: height))
-            }
-            
-            return nil
-            
-        } else {
-            return nil
-        }
-           
-    }
 }
 
 extension AppDelegate: NSWindowDelegate {
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if sender == settingsWindow {
-            sender.orderOut(nil)
+    func windowWillClose(_ notification: Notification) {
+        if let w = notification.object as? NSWindow, w == settingsWindow {
+            settingsWindow = nil
             
-            if let lastState = lastWindowState{
-                if lastState && !boreSightEnabled {
-                    showBoreSightWindow()
-                    lastWindowState = nil
-                }
+
+            if let lastState = lastWindowState, lastState && !boreSightEnabled {
+                lastWindowState = nil
+                showBoreSightWindow()
             }
-            return false
+            
         }
-        return true
+        
     }
+
+    
 }
 

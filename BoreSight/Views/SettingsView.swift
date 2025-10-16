@@ -16,6 +16,8 @@ struct SettingsView: View {
     @State private var isHoveringClose = false
     @State private var isHoveringReset = false
     
+    @State private var isMouseOriginHelpPresented: Bool = false
+    
     var appDelegate: AppDelegate
     
     var crossHairTransparencyText: Text {
@@ -335,15 +337,20 @@ struct SettingsView: View {
     func mouseOriginSettings() -> some View {
         Form() {
             Toggle(isOn: $model.mouseOriginShown) {
-                Text("Set Mouse Origin")
+                Text("Show Mouse Origin")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.opacity(0.75))
             }
             
             Button() {
-                // Show a Help Menu Popover
+                self.isMouseOriginHelpPresented.toggle()
             } label: {
-                Text("What the heck is Mouse Origin?")
+                Text("What the Heck is Mouse Origin?")
+            }
+            .popover(isPresented: $isMouseOriginHelpPresented) {
+                Text("Mouse Origin is a utility for getting the coordinates of your cursor relative to a draggable dot on the screen. In addition to showing the distance from that point, it also calculates and displays the angle of the the dot to the cursor.")
+                    .padding(10)
+                    .frame(width: 300)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: model.mouseOriginShown)
