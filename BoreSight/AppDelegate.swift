@@ -339,7 +339,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 
             case .fixedScreen:
-                let fixedIndex = model.fixedScreenIndex
+                let fixedIndex = self.model.fixedScreenIndex
                 guard fixedIndex < NSScreen.screens.count else { return }
 
                 let screen = NSScreen.screens[fixedIndex]
@@ -355,15 +355,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let isMouseOnScreen = adjustedFrame.insetBy(dx: -1, dy: -1).contains(mouseLocation)
                 
                 if isMouseOnScreen {
-                    if boreSightEnabled {
-                        boreSightWindow?.orderFront(nil)
-                        boreSightEnabled = true
-                    }
-                }   else if boreSightEnabled {
-                        boreSightWindow?.orderOut(nil)
+                    boreSightWindow?.alphaValue = 1.0
+                } else {
+                    boreSightWindow?.alphaValue = 0.0
                 }
                 
-                updateBoreSightMenuItem()
+                self.updateBoreSightMenuItem()
             }
             
         }
