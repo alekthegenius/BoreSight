@@ -625,6 +625,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         
         model.currentScreenSize = screen.frame.size
+        
+        model.mouseOriginPosition = .init(x: screen.frame.width / 2, y: screen.frame.height / 2)
+        
         boreSightWindow?.setFrame(screen.frame, display: true)
         
     }

@@ -181,7 +181,6 @@ class CrosshairModel: ObservableObject {
     @Published var fixedScreenIndex: Int = 0 {
         didSet {
             defaults.set(fixedScreenIndex, forKey: "fixedScreenIndex")
-
         }
     }
     
