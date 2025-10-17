@@ -178,7 +178,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
 
-        statusWindow?.level = .floating
+        statusWindow?.level = .screenSaver
         statusWindow?.isOpaque = false
         statusWindow?.hasShadow = true
         statusWindow?.ignoresMouseEvents = true
@@ -202,7 +202,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         statusWindow?.backgroundColor = .clear
         contentView.wantsLayer = true
-        contentView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.8).cgColor
+        contentView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.7).cgColor
         contentView.layer?.cornerRadius = 10
         contentView.layer?.masksToBounds = true
         
