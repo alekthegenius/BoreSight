@@ -32,3 +32,13 @@ Features:
 
 
 What are you waiting for? Download now and level up your mouse game!
+
+
+## Screenshots
+
+![Screen Shot Number 1](https://github.com/alekthegenius/BoreSight/blob/main/Screenshots/1.png)
+![Screen Shot Number 2](https://github.com/alekthegenius/BoreSight/blob/main/Screenshots/2.png)
+![Screen Shot Number 3](https://github.com/alekthegenius/BoreSight/blob/main/Screenshots/3.png)
+![Screen Shot Number 4](https://github.com/alekthegenius/BoreSight/blob/main/Screenshots/4.png)
+![Screen Shot Number 5](https://github.com/alekthegenius/BoreSight/blob/main/Screenshots/5.png)
+![Screen Shot Number 6](https://github.com/alekthegenius/BoreSight/blob/main/Screenshots/6.png)
