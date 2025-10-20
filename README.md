@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://github.com/alekthegenius/BoreSight/blob/main/BoreSight/Assets.xcassets/AppIcon.appiconset/icon_128x128.png"">
+  <img src="https://github.com/alekthegenius/BoreSight/blob/main/BoreSight/Assets.xcassets/AppIcon.appiconset/icon_256x256.png" width="200" height="200">
   <h3>BoreSight</h3>
   
 
