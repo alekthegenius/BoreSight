@@ -632,7 +632,7 @@ struct SettingsView: View {
             Divider()
                 .padding(.bottom, 7.5)
             
-            Text("from tx with ❤️ © 2025")
+            Text("Hunac Enterprises, LLC © 2025")
                 .font(.system(size: 13, weight: .thin))
                 .padding(.bottom, 15)
         }
