@@ -35,10 +35,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var suspendMouseUpdates = false
     
     var activeCaptureDisplay: SCDisplay?
+    let screenCapture = ScreenCaptureManager()
     
     var boreSightEnabled: Bool = true
     
     var currentScreen: NSScreen?
+    
+    var lastScreen: NSScreen?
+    
+    
+    let sharedFrameBuffer = FrameBuffer()
+    
+    
+    var currentlyCapturingScreen: Bool = false
     
     
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -72,7 +81,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         
         
-        
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "scope", accessibilityDescription: "1")
@@ -82,8 +90,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         createBoreSightWindow()
         
+        
 
     }
+    
     
     func applicationWillTerminate(_ notification: Notification) {
         deinitMouseMonitor()
@@ -117,6 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             boreSightWindow?.backgroundColor = .clear
             boreSightWindow?.hasShadow = false
             boreSightWindow?.orderFrontRegardless()
+            boreSightWindow?.sharingType = .none
 
             
             showBoreSightWindow()
@@ -143,7 +154,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsHostingView = NSHostingView(rootView: settingsView)
         
         settingsWindow?.delegate = self
-        settingsWindow?.level = .normal
+        settingsWindow?.level = .floating
         
         
         settingsWindow?.contentView = settingsHostingView
@@ -336,6 +347,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     model.currentScreenSize = r.screen.frame.size
                     model.mouseOriginPosition = .init(x: r.screen.frame.width / 2, y: r.screen.frame.height / 2)
                     boreSightWindow?.setFrame(r.screen.frame, display: true)
+                    
+                    if currentlyCapturingScreen {
+                        startScreenCapture()
+                    }
                 }
                 
             case .fixedScreen:
@@ -632,6 +647,79 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
     }
     
+    func startScreenCapture() {
+        Task { @MainActor in
+            stopScreenCapture()
+            let targetDisplay: SCDisplay?
+            targetDisplay = await displayForMouseOrigin()
+            print("------------------------------------------------------------------------------------------")
+            print(targetDisplay ?? "No Display")
+            guard let displayToCapture = targetDisplay else { return }
+
+            activeCaptureDisplay = displayToCapture
+            currentlyCapturingScreen = true
+            
+            for try await frame in screenCapture.startCapture(for: displayToCapture) {
+                let padding: Int = 100 // px of black margin
+                let canvasWidth = Int(frame.width) + padding * 2
+                let canvasHeight = Int(frame.height) + padding * 2
+
+                guard let colorSpace = frame.colorSpace,
+                      let ctx = CGContext(
+                        data: nil,
+                        width: canvasWidth,
+                        height: canvasHeight,
+                        bitsPerComponent: frame.bitsPerComponent,
+                        bytesPerRow: 0,
+                        space: colorSpace,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                      ) else { return }
+
+                ctx.setFillColor(CGColor.black)
+                ctx.fill(CGRect(x: 0, y: 0, width: canvasWidth, height: canvasHeight))
+
+                // Draw frame centered on black background
+                ctx.draw(frame, in: CGRect(x: padding, y: padding, width: frame.width, height: frame.height))
+
+                
+                guard let padded = ctx.makeImage() else { return }
+                
+                self.sharedFrameBuffer.latest = padded
+                
+                
+               
+            }
+            
+            
+            
+        }
+    }
+    
+    func stopScreenCapture() {
+        Task {
+            await screenCapture.stopCapture()
+            
+            currentlyCapturingScreen = false
+        }
+        
+        
+    }
+    
+    func displayForMouseOrigin() async -> SCDisplay? {
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return nil }
+        
+        let mousePoint = model.mouseLocation
+
+        // Find the display that contains the mouse origin
+        for display in content.displays {
+           if display.frame.contains(mousePoint) {
+                return display
+            }
+        }
+        
+        return content.displays.first
+    }
+    
 }
 
 extension AppDelegate: NSWindowDelegate {
@@ -651,4 +739,6 @@ extension AppDelegate: NSWindowDelegate {
 
     
 }
+
+
 

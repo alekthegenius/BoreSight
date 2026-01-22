@@ -78,12 +78,39 @@ class CrosshairModel: ObservableObject {
         }
     }
     
+    @Published var magnifierShown: Bool = false {
+        didSet {
+            defaults.set(magnifierShown, forKey: "magnifierShown")
+            DispatchQueue.main.async {
+
+                
+                
+                if let appDelegate = NSApp.delegate as? AppDelegate {
+                    
+                    if self.magnifierShown{
+                        appDelegate.startScreenCapture()
+                    } else {
+                        appDelegate.stopScreenCapture()
+                    }
+                }
+            }
+        }
+    }
+    
+    @Published var magnifierZoom: Double = 5 {
+        didSet {
+            defaults.set(magnifierZoom, forKey: "magnifierZoom")
+        }
+    }
+    
     @Published var gapShown: Bool = true {
         didSet {
             defaults.set(gapShown, forKey: "gapShown")
             
         }
     }
+    
+    
     
     @Published var borderOn: Bool = true {
         didSet {
@@ -305,6 +332,15 @@ class CrosshairModel: ObservableObject {
                self.mouseOriginShown = defaults.bool(forKey: "mouseOriginShown")
         }
         
+        if defaults.object(forKey: "magnifierShown") != nil {
+               self.magnifierShown = defaults.bool(forKey: "magnifierShown")
+            
+        }
+        
+        if defaults.object(forKey: "magnifierZoom") != nil {
+            self.magnifierZoom = defaults.double(forKey: "magnifierZoom")
+        }
+        
         if let position = defaults.cgPoint(forKey: "mouseOriginPosition") {
             self.mouseOriginPosition = position
         }
@@ -423,6 +459,8 @@ class CrosshairModel: ObservableObject {
         self.everythingShown = true
         
         self.mouseOriginShown = true
+        
+        self.magnifierShown = false
         
     }
     

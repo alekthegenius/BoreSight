@@ -178,6 +178,7 @@ struct SettingsView: View {
                             crossHairSettings()
                             crosshairGapSettings()
                             borderSettings()
+                            magnifierSettings()
                             mouseCoordinatesTextSettings()
                             mouseOriginSettings()
 
@@ -471,7 +472,33 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
     }
     
-   
+    @ViewBuilder
+    func magnifierSettings() -> some View {
+        Form {
+            Toggle(isOn: $model.magnifierShown){
+                Text("Magnifier")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.opacity(0.75))
+            }
+            
+            if model.magnifierShown {
+                Slider(value: $model.magnifierZoom, in: 0...10, step: 0.5) {
+                    HStack {
+                        Text("Magnifier Zoom:")
+                        Text("\(Double(model.magnifierZoom).formatted(.number.precision(.fractionLength(1))))x")
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
+            
+        }
+        .animation(.easeInOut(duration: 0.25), value: model.magnifierShown)
+        .scrollDisabled(true)
+        .fontDesign(.rounded)
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+    
     
     
     @ViewBuilder
@@ -718,28 +745,33 @@ struct SettingsView: View {
                                 .blendMode(.destinationOut)
                             
                         case .square:
-                            Rectangle()
+                            RoundedRectangle(cornerRadius: 10)
                                 .fill(.black) // Or clear if your background is transparent
                                 .frame(width: model.gapSize+model.gapBorderThickness, height: model.gapSize+model.gapBorderThickness)
                                 .blendMode(.destinationOut)
                             
                             if model.borderOn {
-                                Rectangle()
-                                    .fill(.black) // Or clear if your background is transparent
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(.black)
                                     .stroke(.black, lineWidth: model.borderThickness)
                                     .frame(width: model.gapSize+model.gapBorderThickness+model.borderThickness, height: model.gapSize+model.gapBorderThickness+model.borderThickness)
                                     .blendMode(.destinationOut)
                                 
                                 Rectangle()
+                                    .fill(.clear)
+                                    .stroke(model.gapBorderColor.opacity(model.gapBorderTransparency), lineWidth: model.gapBorderThickness)
+                                    .frame(width: model.gapSize, height: model.gapSize)
+                                
+                                RoundedRectangle(cornerRadius: 10)
                                     .stroke(model.borderColor.opacity(model.borderTransparency), lineWidth: model.borderThickness)
                                     .frame(width: model.gapSize+model.gapBorderThickness+model.borderThickness, height: model.gapSize+model.gapBorderThickness+model.borderThickness)
                                     
+                            } else {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(.clear)
+                                    .stroke(model.gapBorderColor.opacity(model.gapBorderTransparency), lineWidth: model.gapBorderThickness)
+                                    .frame(width: model.gapSize, height: model.gapSize)
                             }
-                            
-                            Rectangle()
-                                .fill(.clear)
-                                .stroke(model.gapBorderColor.opacity(model.gapBorderTransparency), lineWidth: model.gapBorderThickness)
-                                .frame(width: model.gapSize, height: model.gapSize)
                             
                             
                         

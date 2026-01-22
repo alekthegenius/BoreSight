@@ -114,33 +114,48 @@ struct FullScreenCrosshairs: View {
 
                         
                         Rectangle()
-                            .fill(.black) // Or clear if your background is transparent
+                            .fill(.black)
                             .frame(width: model.gapSize, height: model.gapSize)
                             .blendMode(.destinationOut)
                         
                     case .square:
-                        Rectangle()
-                            .fill(.black) // Or clear if your background is transparent
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.black)
                             .frame(width: model.gapSize+model.gapBorderThickness, height: model.gapSize+model.gapBorderThickness)
                             .blendMode(.destinationOut)
                         
+                        
+                        
                         if model.borderOn {
-                            Rectangle()
-                                .fill(.black) // Or clear if your background is transparent
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.black)
                                 .stroke(.black, lineWidth: model.borderThickness)
                                 .frame(width: model.gapSize+model.gapBorderThickness+model.borderThickness, height: model.gapSize+model.gapBorderThickness+model.borderThickness)
                                 .blendMode(.destinationOut)
                             
                             Rectangle()
+                                .fill(.clear)
+                                .stroke(model.gapBorderColor.opacity(model.gapBorderTransparency), lineWidth: model.gapBorderThickness)
+                                .frame(width: model.gapSize, height: model.gapSize)
+                            
+                            RoundedRectangle(cornerRadius: 10)
                                 .stroke(model.borderColor.opacity(model.borderTransparency), lineWidth: model.borderThickness)
                                 .frame(width: model.gapSize+model.gapBorderThickness+model.borderThickness, height: model.gapSize+model.gapBorderThickness+model.borderThickness)
                                 
+                        } else {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.clear)
+                                .stroke(model.gapBorderColor.opacity(model.gapBorderTransparency), lineWidth: model.gapBorderThickness)
+                                .frame(width: model.gapSize, height: model.gapSize)
                         }
                         
-                        Rectangle()
-                            .fill(.clear)
-                            .stroke(model.gapBorderColor.opacity(model.gapBorderTransparency), lineWidth: model.gapBorderThickness)
-                            .frame(width: model.gapSize, height: model.gapSize)
+                        
+                        if model.magnifierShown {
+                            magnifierRectangleView()
+                                .allowsHitTesting(false)
+                        }
+                        
+                        
                         
                         
                     
@@ -169,6 +184,13 @@ struct FullScreenCrosshairs: View {
                             .fill(.clear)
                             .stroke(model.gapBorderColor.opacity(model.gapBorderTransparency), lineWidth: model.gapBorderThickness)
                             .frame(width: model.gapSize, height: model.gapSize)
+                        
+                        
+                        if model.magnifierShown {
+                            magnifierCircleView()
+                                .allowsHitTesting(false)
+                        }
+
                     }
                 }
                 .position(x: round(model.mouseLocation.x), y: model.currentScreenSize.height-model.mouseLocation.y)
@@ -252,14 +274,6 @@ struct FullScreenCrosshairs: View {
             
             if model.mouseOriginShown  {
                 ZStack {
-                    if mouseDown && (mouseOriginHover || isDraggingOrigin) {
-                        GeometryReader { proxy in
-                                Rectangle()
-                                .fill(.black.opacity(0.25))
-                                    .frame(width: proxy.size.width, height: proxy.size.height)
-                                    
-                        }
-                    }
                     
                     
                     
@@ -348,14 +362,9 @@ struct FullScreenCrosshairs: View {
     
     @ViewBuilder
     func mouseOriginOverlay() -> some View {
-        Circle()
-            .fill(.white)
-            .blendMode(.destinationOut)
-            .frame(width: (mouseOriginHover || isDraggingOrigin)  ? (model.gapSize >= 55 ? model.gapSize : 55) : 30, height: (mouseOriginHover || isDraggingOrigin) ? (model.gapSize >= 55 ? model.gapSize : 55) : 30)
-            .animation(isDraggingOrigin ? nil : .spring(response: 0.25, dampingFraction: 0.7), value: mouseDown || mouseOriginHover)
         
         Circle()
-            .fill(mouseDown && (mouseOriginHover || isDraggingOrigin) ? .white.opacity(0.1) : (mouseOriginHover ? .blue.opacity(0.6) : .gray.opacity(0.6)))
+            .fill(mouseDown && (mouseOriginHover || isDraggingOrigin) ? .clear : (mouseOriginHover ? .blue.opacity(0.6) : .gray.opacity(0.6)))
             .stroke(mouseDown && (mouseOriginHover || isDraggingOrigin) ? .clear : .white, lineWidth: mouseDown && (mouseOriginHover || isDraggingOrigin) ? 0 : 4)
             .frame(width: (mouseOriginHover || isDraggingOrigin)  ? (model.gapSize >= 55 ? model.gapSize : 55) : 30, height: (mouseOriginHover || isDraggingOrigin) ? (model.gapSize >= 55 ? model.gapSize : 55) : 30)
             .animation(isDraggingOrigin ? nil : .spring(response: 0.25, dampingFraction: 0.7), value: mouseDown || mouseOriginHover)
@@ -392,7 +401,85 @@ struct FullScreenCrosshairs: View {
     
     
     
+    @ViewBuilder
+    func magnifierCircleView() -> some View {
+
+        
+        if let frame = delegate.sharedFrameBuffer.latest {
+            
+            let padding: CGFloat = 100 
+
+            let cropRect = CGRect(
+                x: model.mouseLocation.x - model.gapSize / 2 + padding,
+                y: CGFloat(frame.height) - model.mouseLocation.y - model.gapSize / 2 - padding,
+                width: model.gapSize,
+                height: model.gapSize
+            )
+
+            if let cropped = frame.cropping(to: cropRect) {
+
+
+                ZStack {
+                    Image(decorative: cropped, scale: 1.0, orientation: .up)
+                        .resizable()
+                        .interpolation(.none)
+                        .scaleEffect(model.magnifierZoom)
+                        .clipShape(Circle())
+                        .frame(width: model.gapSize, height: model.gapSize)
+                        .shadow(radius: 5)
+                    
+                }
+
+                    
+                    
+            }
+        } else {
+
+            Circle()
+               .fill(Color.black.opacity(0.2))
+               .frame(width: 120, height: 120)
+        }
+    }
     
+    @ViewBuilder
+    func magnifierRectangleView() -> some View {
+
+        
+        if let frame = delegate.sharedFrameBuffer.latest {
+            
+            let padding: CGFloat = 100
+
+            let cropRect = CGRect(
+                x: model.mouseLocation.x - model.gapSize / 2 + padding,
+                y: CGFloat(frame.height) - model.mouseLocation.y - model.gapSize / 2 - padding,
+                width: model.gapSize,
+                height: model.gapSize
+            )
+
+            if let cropped = frame.cropping(to: cropRect) {
+
+
+                ZStack {
+                    Image(decorative: cropped, scale: 1.0, orientation: .up)
+                        .resizable()
+                        .interpolation(.none)
+                        .scaleEffect(model.magnifierZoom)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .frame(width: model.gapSize, height: model.gapSize)
+                        .shadow(radius: 5)
+                    
+                }
+
+                    
+                    
+            }
+        } else {
+
+            RoundedRectangle(cornerRadius: 10)
+               .fill(Color.black.opacity(0.2))
+               .frame(width: 120, height: 120)
+        }
+    }
     
     
     func clampedCoordinateTextPosition(mouse: CGPoint, screenSize: CGSize, overlaySize: CGSize) -> CGPoint {
